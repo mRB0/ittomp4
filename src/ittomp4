@@ -16,6 +16,8 @@ import threading
 import cairo
 import socket
 import random
+import cairofont_windows
+FONT_FACE = cairofont_windows.get_cairo_font('Consolas')
 
 from twisted.internet.protocol import Factory, Protocol
 from twisted.internet import reactor
@@ -65,7 +67,7 @@ class VideoProducer(object):
             surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 1920, 1080)
             ctx = cairo.Context(surface)
 
-            for i in xrange(0, 30 * 60):
+            for i in xrange(0, 3 * 60):
                 self._pauseLock.acquire()
                 try:
                     while self._pause:
@@ -109,6 +111,12 @@ class VideoProducer(object):
                 ctx.fill()
 
 
+                ctx.set_font_face(FONT_FACE)
+                ctx.set_font_size(32)
+                ctx.move_to(100, 100)
+                ctx.set_source_rgb(1, 1, 1)
+                ctx.show_text('The quick brown fox jumps over the lazy dog.')
+                
                 surface_data = str(surface.get_data())
 
                 reactor.callFromThread(write_frame, surface_data)
