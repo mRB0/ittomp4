@@ -415,7 +415,11 @@ def get_cairo_font(font_name, faceindex=0, loadoptions=0):
     face = cairo_ctx.get_font_face ()
 
     return face
-    
+
+def load_font(font_name):
+    return get_cairo_font(font_name)
+
+
 
 if __name__ == '__main__':
   for f in font_list():
