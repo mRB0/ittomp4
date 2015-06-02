@@ -9,6 +9,9 @@ import subprocess
 import math
 import threading
 
+#FFMPEG = r'C:\Users\mrb\Documents\Apps\ffmpeg-20141228-git-750b10f-win64-static\bin\ffmpeg'
+FFMPEG = 'ffmpeg'
+
 # C:\Users\mrb\Documents\Apps\ffmpeg-20141228-git-750b10f-win64-static\bin\ffmpeg -f rawvideo -pixel_format argb -video_size 1920x1080 -framerate 60 -i video.raw-1920x1080-argb -vsync 2 -crf 15 -vcodec libx264 -pix_fmt yuv420p -preset ultrafast -threads 3 -an -movflags faststart out.mp4
 
 # -- image writer --
@@ -16,8 +19,16 @@ import threading
 import cairo
 import socket
 import random
-import cairofont_windows
-FONT_FACE = cairofont_windows.get_cairo_font('Consolas')
+
+from sys import platform as _platform
+if _platform == 'linux' or _platform == 'linux2':
+    import cairofont_freetype as cairofont
+elif _platform == 'win32':
+    import cairofont_windows as cairofont
+elif _platform == 'darwin':
+    import cairofont_osx as cairofont
+
+FONT_FACE = cairofont.load_font('Terminus')
 
 from twisted.internet.protocol import Factory, Protocol
 from twisted.internet import reactor
@@ -67,7 +78,7 @@ class VideoProducer(object):
             surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 1920, 1080)
             ctx = cairo.Context(surface)
 
-            for i in xrange(0, 3 * 60):
+            for i in xrange(0, 15 * 60):
                 self._pauseLock.acquire()
                 try:
                     while self._pause:
@@ -183,7 +194,7 @@ class Manager(object):
         logging.info("Video server listening on port {}".format(video_port))
 
         def start_ffmpeg():
-            subprocess.Popen([r'C:\Users\mrb\Documents\Apps\ffmpeg-20141228-git-750b10f-win64-static\bin\ffmpeg', '-y', '-f', 'rawvideo', '-pixel_format', 'bgra', '-video_size', '1920x1080', '-framerate', '60', '-i', 'tcp://127.0.0.1:{}'.format(video_port), '-vsync', '2', '-crf', '15', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'ultrafast', '-threads', '3', '-an', '-movflags', 'faststart', 'out.mp4'])
+            subprocess.Popen([FFMPEG, '-y', '-f', 'rawvideo', '-pixel_format', 'bgra', '-video_size', '1920x1080', '-framerate', '60', '-i', 'tcp://127.0.0.1:{}'.format(video_port), '-vsync', '2', '-crf', '15', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'ultrafast', '-threads', '3', '-an', '-movflags', 'faststart', 'out.mp4'])
 
         reactor.callWhenRunning(start_ffmpeg)
         reactor.run()

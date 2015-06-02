@@ -61,3 +61,7 @@ def create_cairo_font_face_for_file (filename, faceindex=0, loadoptions=0):
     face = cairo_ctx.get_font_face ()
 
     return face
+
+
+def load_font(font_name):
+    return create_cairo_font_face_for_file(font_name)
