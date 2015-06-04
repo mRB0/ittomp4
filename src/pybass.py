@@ -1,3 +1,4 @@
+# -*- coding: utf-8-unix -*-
 # Copyright(c) Maxim Kolosov 2009-2013 pyirrlicht@gmail.com
 # http://pybass.sf.net
 # BSD license
@@ -53,14 +54,19 @@ Main Features
   play samples/streams/musics in any 3D position, with EAX support
 '''
 
-import sys, ctypes, platform
+import sys, ctypes
+from sys import platform as _platform
 
 if sys.hexversion < 0x02060000:
 	ctypes.c_bool = ctypes.c_byte
 
-if platform.system().lower() == 'windows':
+if _platform == 'win32':
 	bass_module = ctypes.WinDLL('bass')
 	func_type = ctypes.WINFUNCTYPE
+elif _platform == 'darwin':
+	# correct by Wasylews (sabov.97@mail.ru), thank him
+	bass_module = ctypes.CDLL('./libbass.dylib', mode=ctypes.RTLD_GLOBAL)
+	func_type = ctypes.CFUNCTYPE
 else:
 	# correct by Wasylews (sabov.97@mail.ru), thank him
 	bass_module = ctypes.CDLL('./libbass.so', mode=ctypes.RTLD_GLOBAL)
@@ -226,7 +232,7 @@ class BASS_DEVICEINFO(ctypes.Structure):
 	('driver', ctypes.c_char_p),#driver
 	('flags', ctypes.c_ulong)
 	]
-if platform.system().lower() == 'windows':
+if _platform == 'win32':
 	if sys.getwindowsversion()[3] == 3:#VER_PLATFORM_WIN32_CE
 		BASS_DEVICEINFO._fields_ = [('name', ctypes.c_wchar_p),#description
 		('driver', ctypes.c_wchar_p),#driver
@@ -418,7 +424,7 @@ class BASS_PLUGINFORM(ctypes.Structure):
 	('name', ctypes.c_char_p),#const char *name;	// format description
 	('exts', ctypes.c_char_p)#const char *exts;	// file extension filter (*.ext1;*.ext2;etc...)
 	]
-if platform.system().lower() == 'windows':
+if _platform == 'win32':
 	if sys.getwindowsversion()[3] == 3:#VER_PLATFORM_WIN32_CE
 		BASS_PLUGINFORM._fields_ = [('ctype', ctypes.c_ulong),#DWORD ctype;		// channel type
 		('name', ctypes.c_wchar_p),#const wchar_t *name;	// format description
@@ -706,7 +712,7 @@ class TAG_APE_BINARY(ctypes.Structure):
 
 # BWF "bext" tag structure
 class TAG_BEXT(ctypes.Structure):
-	if platform.system().lower() != 'windows':
+	if _platform != 'win32':
 		_pack_ = 1
 	_fields_ = [('Description', ctypes.c_char*256),#char Description[256];// description
 	('Originator', ctypes.c_char*32),#char Originator[32];// name of the originator
@@ -1092,7 +1098,7 @@ BASS_FXGetParameters = func_type(ctypes.c_bool, HFX, ctypes.c_void_p)(('BASS_FXG
 BASS_FXReset = func_type(ctypes.c_bool, HFX)(('BASS_FXReset', bass_module))
 
 
-if platform.system().lower() == 'windows':
+if _platform == 'win32':
 	#BOOL BASSDEF(BASS_Init)(int device, DWORD freq, DWORD flags, HWND win, const GUID *dsguid);
 	BASS_Init = func_type(ctypes.c_bool, ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p)(('BASS_Init', bass_module))
 	#void *BASSDEF(BASS_GetDSoundObject)(DWORD object);
