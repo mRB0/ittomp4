@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+# -*- coding: utf-8-unix -*-
 
 # Adapted from http://pyglet.googlecode.com/hg-history/8cca88b20854040d828cae96cf7d69d2415880eb/pyglet/font/win32query.py
 
