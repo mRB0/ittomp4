@@ -28,11 +28,10 @@ class Module(object):
             logger.debug("End of mod")
             return None
 
-        if returned < num_frames:
-            buf = buf[:returned * 2]
+        buf = buf[:returned * 2]
 
         logger.debug("Decoded {} frames".format(returned))
-        return list(buf)
+        return buf
     
     def close(self):
         if self.mod_p is not None:
