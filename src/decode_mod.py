@@ -3,60 +3,41 @@
 import logging as _logging
 logger = _logging.getLogger(__name__)
 
-import pybass
 import ctypes
+import libopenmpt
 
-_bass_initialized = False
+def _openmpt_log(message, user):
+    logger.info("(openmpt) {}".format(message.decode('utf-8')))
 
-class BASSError(Exception):
-    def __init__(self, error_code, fn_name):
-        error_description = pybass.error_descriptions.get(error_code, u"(Unrecognized error)")
-        
-        super(BASSError, self).__init__(u'{}: {}'.format(fn_name, error_description))
-        self.error_code = error_code
-        
-        
+_openmpt_log_func = libopenmpt.openmpt_log_func(_openmpt_log)
 
-def _bass_check_call(fn_name, *args):
-    rc = getattr(pybass, fn_name)(*args)
-    error_code = pybass.BASS_ErrorGetCode()
-    if error_code != 0:
-        raise BASSError(error_code, fn_name)
-    else:
-        return rc
-    
-    
 class Module(object):
     def __init__(self, module_filename):
-        if not _bass_initialized:
-            logger.info("Initialize BASS")
-            _bass_check_call('BASS_Init', 0, 48000, 0, 0, 0)
+        with open(module_filename, 'rb') as mod_file:
+            mod_data = mod_file.read()
 
-        # TODO: add unicode support -- encode filename as utf-16 on windows, utf-8 elsewhere
-        self.h_mod = _bass_check_call('BASS_MusicLoad', False, module_filename, 0, 0, pybass.BASS_MUSIC_DECODE | pybass.BASS_MUSIC_STOPBACK, 48000)
+        mod_data_buf = ctypes.create_string_buffer(mod_data, len(mod_data))
         
-    def decode(self, num_samples):
-        buf = (ctypes.c_int16 * num_samples)()
+        self.mod_p = libopenmpt.openmpt_module_create_from_memory(mod_data_buf, len(mod_data_buf), _openmpt_log_func, None, None)
         
-        try:
-            returned = _bass_check_call('BASS_ChannelGetData', self.h_mod, buf, num_samples * 2) # * 2 => n 16-bit samples = n * 2 bytes
-        except BASSError as e:
-            if e.error_code == pybass.BASS_ERROR_ENDED:
-                logger.debug("End of mod")
-                return None
-            else:
-                raise
-            
-        returned = returned / 2
+    def decode(self, num_frames):
+        buf = (ctypes.c_int16 * (num_frames * 2))() # * 2 => stereo
         
-        if returned < num_samples:
-            buf = buf[:returned]
+        returned = libopenmpt.openmpt_module_read_interleaved_stereo(self.mod_p, 48000, num_frames, buf)
+        if returned == 0:
+            logger.debug("End of mod")
+            return None
 
+        if returned < num_frames:
+            buf = buf[:returned * 2]
+
+        logger.debug("Decoded {} frames".format(returned))
         return list(buf)
     
     def close(self):
-        if self.h_mod is not None:
-            _bass_check_call('BASS_MusicFree', self.h_mod)
-            self.h_mod = None
+        if self.mod_p is not None:
+            libopenmpt.openmpt_module_destroy(self.mod_p)
+            
+            self.mod_p = None
         
         
