@@ -127,6 +127,11 @@ class Manager(object):
         self._producers -= 1
         if not self._producers:
             reactor.stop()
+
+    def notify_ffmpeg_exit(self):
+        if self._producers:
+            logger.error("ffmpeg stopped before producers")
+            reactor.stop()
             
     def run(self):
         self._producers = 0
@@ -142,10 +147,27 @@ class Manager(object):
         self._producers += 1
         
         def start_ffmpeg():
-            subprocess.Popen([FFMPEG, '-y',
-                              '-f', 'rawvideo', '-pixel_format', 'bgra', '-video_size', '1920x1080', '-framerate', '60', '-i', 'tcp://127.0.0.1:{}'.format(video_port),
-                              '-f', 's16le', '-ar', '48000', '-ac', '2', '-i', 'tcp://127.0.0.1:{}'.format(audio_port),
-                              '-vsync', '2', '-crf', '15', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'ultrafast', '-threads', '3', '-c:a', 'libvo_aacenc', '-b:a', '256k', '-movflags', 'faststart', 'out.mp4'])
+            def ffmpeg_thread():
+                try:
+                    process = subprocess.Popen([FFMPEG, '-y',
+                                                '-f', 'rawvideo', '-pixel_format', 'bgra', '-video_size', '1920x1080', '-framerate', '60', '-i', 'tcp://127.0.0.1:{}'.format(video_port),
+                                                '-f', 's16le', '-ar', '48000', '-ac', '2', '-i', 'tcp://127.0.0.1:{}'.format(audio_port),
+                                                '-vsync', '2', '-crf', '15', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'ultrafast', '-threads', '3', '-c:a', 'libvo_aacenc', '-b:a', '256k', '-movflags', 'faststart', 'out.mp4'])
+
+                    process.wait()
+                    if process.returncode != 0:
+                        logger.warning("ffmpeg exited with non-zero return code {}".format(process.returncode))
+                except:
+                    logger.exception("Exception running ffmpeg subprocess")
+                finally:
+                    reactor.callFromThread(lambda: self.notify_ffmpeg_exit())
+                
+                
+                
+            ffmpeg_thread = threading.Thread(target=ffmpeg_thread)
+            ffmpeg_thread.daemon = True
+            ffmpeg_thread.start()
+            
 
         reactor.callWhenRunning(start_ffmpeg)
         reactor.run()
