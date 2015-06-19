@@ -118,8 +118,26 @@ class SourceWriterFactory(Factory):
 
 ### Main ###
 
-class Manager(object):
+class Encoder(object):
     def __init__(self, audio_source, video_source):
+        """Init a video encoding manager using an audio source and
+        a video source.
+
+        video_source and audio_source are objects that implement a
+        frames method.
+
+        source.frames() takes no arguments and returns a generator.
+        Each object returned by the generator is a string (bytes) of
+        data in the appropriate format for video or audio.
+
+        At the moment, "appropriate format" means:
+
+        audio_source: signed 16-bit little-endian stereo samples,
+        interleaved, at 48000 Hz.
+
+        video_source: bgra data at 1920x1080, to be encoded at 60 fps.
+
+        """
         self.audio_source = audio_source
         self.video_source = video_source
         
