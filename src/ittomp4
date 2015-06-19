@@ -23,6 +23,18 @@ elif _platform == 'darwin':
 FONT_FACE = cairofont.load_font('Comic Sans MS')
 
 
+@contextlib.contextmanager
+def cairo_surface(*image_surface_args):
+    surface = cairo.ImageSurface(*image_surface_args)
+    yield surface
+    del surface
+
+@contextlib.contextmanager
+def cairo_context(surface):
+    context = cairo.Context(surface)
+    yield context
+    del context
+    
 class VideoSource(object):
     def __init__(self):
         pass
@@ -31,52 +43,50 @@ class VideoSource(object):
         barwidth = 100
         step = 10
 
-        surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 1920, 1080)
-        ctx = cairo.Context(surface)
-
         for i in xrange(0, 11 * 60):
             logging.debug("Produce a video frame")
 
-            ctx.new_path()
-            ctx.rectangle(0, 0, 1920, 1080)
-            ctx.set_source_rgb(math.cos(i / 240 * (math.pi * 2)) / 2 + 0.5, 0, math.sin(i / 180 * (math.pi * 2)) / 2 + 0.5)
-            ctx.fill()
+            with cairo_surface(cairo.FORMAT_ARGB32, 1920, 1080) as surface:
+                with cairo_context(surface) as ctx:
+            
+                    ctx.new_path()
+                    ctx.rectangle(0, 0, 1920, 1080)
+                    ctx.set_source_rgb(math.cos(i / 240 * (math.pi * 2)) / 2 + 0.5, 0, math.sin(i / 180 * (math.pi * 2)) / 2 + 0.5)
+                    ctx.fill()
+
+                    horizbar_y_ctr = (1080 / 2) + (int(math.cos(i / 240 * (math.pi * 2)) * (1080 / 2 * .8)))
+                    max_extent = int(1080 * .08 / 2)
+
+                    for h in xrange(max_extent, 0, -1):
+                        ctx.new_path()
+                        ctx.rectangle(0, horizbar_y_ctr - h, 1920, h * 2)
+                        ctx.set_source_rgba(1, 1, 1, (max_extent - h) / pow(max_extent, 2))
+                        ctx.fill()
 
 
 
-            horizbar_y_ctr = (1080 / 2) + (int(math.cos(i / 240 * (math.pi * 2)) * (1080 / 2 * .8)))
-            max_extent = int(1080 * .08 / 2)
+                    ctx.new_path()
 
-            for h in xrange(max_extent, 0, -1):
-                ctx.new_path()
-                ctx.rectangle(0, horizbar_y_ctr - h, 1920, h * 2)
-                ctx.set_source_rgba(1, 1, 1, (max_extent - h) / pow(max_extent, 2))
-                ctx.fill()
+                    if 1920 - ((i * step) % 1920) < barwidth:
+                        ctx.rectangle((i * step) % 1920 - 1920, 0, barwidth, 1080)
+                    ctx.rectangle((i * step) % 1920, 0, barwidth, 1080)
 
-
-
-            ctx.new_path()
-
-            if 1920 - ((i * step) % 1920) < barwidth:
-                ctx.rectangle((i * step) % 1920 - 1920, 0, barwidth, 1080)
-            ctx.rectangle((i * step) % 1920, 0, barwidth, 1080)
-
-            ctx.set_source_rgb(0.25, 1, 0.25)
-            ctx.fill()
+                    ctx.set_source_rgb(0.25, 1, 0.25)
+                    ctx.fill()
 
 
-            ctx.set_font_face(FONT_FACE)
-            ctx.set_font_size(128)
-            ctx.set_source_rgb(1, 1, 1)
+                    ctx.set_font_face(FONT_FACE)
+                    ctx.set_font_size(128)
+                    ctx.set_source_rgb(1, 1, 1)
 
-            for pos, ltr in enumerate('  YOU ARE FULL OF BOMBS AND/OR KEYS'):
-                x = 1920 - i * step + (128 * pos)
-                y = (1080 / 2) - (1080 * 0.2 * math.sin((x + (i * step/4)) * math.pi / 1020))
+                    for pos, ltr in enumerate('  YOU ARE FULL OF BOMBS AND/OR KEYS'):
+                        x = 1920 - i * step + (128 * pos)
+                        y = (1080 / 2) - (1080 * 0.2 * math.sin((x + (i * step/4)) * math.pi / 1020))
 
-                ctx.move_to(x, y)
-                ctx.show_text(ltr)
+                        ctx.move_to(x, y)
+                        ctx.show_text(ltr)
 
-            surface_data = str(surface.get_data())
+                surface_data = str(surface.get_data())
 
             yield surface_data
 
