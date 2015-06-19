@@ -123,5 +123,5 @@ if __name__ == '__main__':
     audio_source = AudioSource(sys.argv[1])
     video_source = VideoSource()
     
-    videofeeder.Manager(audio_source, video_source).run()
+    videofeeder.Encoder(audio_source, video_source).run()
 
