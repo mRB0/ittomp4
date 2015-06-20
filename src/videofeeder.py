@@ -16,13 +16,14 @@ class SourceProducer(object):
     
     FRAMES_DONE = object()
 
-    def __init__(self, source, write_frames):
+    def __init__(self, source, write_frames, name):
+        self._name = name
         self._pause = True
         self._stop = False
 
         self._pauseLock = threading.Condition()
         
-        self._thread = threading.Thread(target=self._produce_frames, args=(source, write_frames,))
+        self._thread = threading.Thread(target=self._produce_frames, args=(source, write_frames,), name=self._name)
         self._thread.start()
         
     def resumeProducing(self):
@@ -76,7 +77,8 @@ class SourceProducer(object):
 class SourceWriter(Protocol):
     _started = {}
 
-    def __init__(self, manager, source):
+    def __init__(self, manager, source, name):
+        self._name = name
         self._manager = manager
         self._source = source
         self._active = False
@@ -86,11 +88,13 @@ class SourceWriter(Protocol):
             logger.warning("Connection made after start")
             self.transport.loseConnection()
             return
+
+        logger.info("Connection established to {}".format(self._name))
         
         self._active = True
         SourceWriter._started[self._source] = True
             
-        self._producer = SourceProducer(self._source, self._write_frames)
+        self._producer = SourceProducer(self._source, self._write_frames, self._name)
         self.transport.registerProducer(self._producer, True)
         self._producer.resumeProducing()
 
@@ -108,12 +112,13 @@ class SourceWriter(Protocol):
         
         
 class SourceWriterFactory(Factory):
-    def __init__(self, manager, source):
+    def __init__(self, manager, source, name):
+        self._name = name
         self._manager = manager
         self._source = source
         
     def buildProtocol(self, addr):
-        return SourceWriter(self._manager, self._source)
+        return SourceWriter(self._manager, self._source, self._name)
 
 
 ### Main ###
@@ -124,7 +129,7 @@ class Encoder(object):
         a video source.
 
         video_source and audio_source are objects that implement a
-        frames method.
+        frames() method.
 
         source.frames() takes no arguments and returns a generator.
         Each object returned by the generator is a string (bytes) of
@@ -135,7 +140,13 @@ class Encoder(object):
         audio_source: signed 16-bit little-endian stereo samples,
         interleaved, at 48000 Hz.
 
+        A "single frame" of audio data is two consecutive s16le
+        samples: one left channel, one right.
+
         video_source: bgra data at 1920x1080, to be encoded at 60 fps.
+
+        TODO: audio and video sources should advertise their
+        framerates and we should use what they advertise
 
         """
         self.audio_source = audio_source
@@ -154,12 +165,12 @@ class Encoder(object):
     def run(self):
         self._producers = 0
         
-        vwf = SourceWriterFactory(self, self.video_source)
+        vwf = SourceWriterFactory(self, self.video_source, 'video')
         video_port = reactor.listenTCP(0, vwf).getHost().port
         logger.info("Video server listening on port {}".format(video_port))
         self._producers += 1
 
-        awf = SourceWriterFactory(self, self.audio_source)
+        awf = SourceWriterFactory(self, self.audio_source, 'audio')
         audio_port = reactor.listenTCP(0, awf).getHost().port
         logger.info("Audio server listening on port {}".format(audio_port))
         self._producers += 1
@@ -182,7 +193,7 @@ class Encoder(object):
                 
                 
                 
-            ffmpeg_thread = threading.Thread(target=ffmpeg_thread)
+            ffmpeg_thread = threading.Thread(target=ffmpeg_thread, name="ffmpeg thread")
             ffmpeg_thread.daemon = True
             ffmpeg_thread.start()
             
