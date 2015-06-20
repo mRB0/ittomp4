@@ -131,7 +131,7 @@ class Synchronizer(object):
         self._video_frames_produced = 0
         self._audio_frames_produced = 0
 
-        self._video_queue = Queue(32)
+        self._video_queue = Queue(1)
         self._audio_queue = Queue()
         
         self._request_condition = threading.Condition()
@@ -226,7 +226,7 @@ class AudioSource(object):
             
 if __name__ == '__main__':
     import logging
-    logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(threadName)s %(levelname)-7s %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(threadName)s %(levelname)-7s %(message)s")
 
     import videofeeder
 
