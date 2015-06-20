@@ -1,5 +1,6 @@
 FFMPEG = 'ffmpeg'
 
+import os
 import logging as _logging
 logger = _logging.getLogger(__name__)
 import subprocess
@@ -16,14 +17,14 @@ class SourceProducer(object):
     
     FRAMES_DONE = object()
 
-    def __init__(self, source, write_frames, name):
-        self._name = name
+    def __init__(self, sourcewriter, write_frames):
+        self._sourcewriter = sourcewriter
         self._pause = True
         self._stop = False
 
         self._pauseLock = threading.Condition()
         
-        self._thread = threading.Thread(target=self._produce_frames, args=(source, write_frames,), name=self._name)
+        self._thread = threading.Thread(target=self._produce_frames, args=(sourcewriter.factory.source, write_frames,), name=self._sourcewriter.factory.name)
         self._thread.start()
         
     def resumeProducing(self):
@@ -75,32 +76,28 @@ class SourceProducer(object):
 
             
 class SourceWriter(Protocol):
-    _started = {}
-
-    def __init__(self, manager, source, name):
-        self._name = name
-        self._manager = manager
-        self._source = source
-        self._active = False
+    def __init__(self, factory):
+        self.factory = factory
+        self.active = False
     
     def connectionMade(self):
-        if self._source in SourceWriter._started:
+        if self.factory.started:
             logger.warning("Connection made after start")
             self.transport.loseConnection()
             return
 
-        logger.info("Connection established to {}".format(self._name))
+        logger.info("Connection established to {}".format(self.factory.name))
         
-        self._active = True
-        SourceWriter._started[self._source] = True
+        self.active = True
+        self.factory.started = True
             
-        self._producer = SourceProducer(self._source, self._write_frames, self._name)
-        self.transport.registerProducer(self._producer, True)
-        self._producer.resumeProducing()
+        self.producer = SourceProducer(self, self._write_frames)
+        self.transport.registerProducer(self.producer, True)
+        self.producer.resumeProducing()
 
     def connectionLost(self, reason):
-        if self._active:
-            self._manager.notify_done()
+        if self.active:
+            self.factory.manager.notify_done()
         
     def _write_frames(self, frame_data):
         if frame_data is SourceProducer.FRAMES_DONE:
@@ -113,14 +110,84 @@ class SourceWriter(Protocol):
         
 class SourceWriterFactory(Factory):
     def __init__(self, manager, source, name):
-        self._name = name
-        self._manager = manager
-        self._source = source
-        
+        self.started = False
+        self.name = name
+        self.manager = manager
+        self.source = source
+
     def buildProtocol(self, addr):
-        return SourceWriter(self._manager, self._source, self._name)
+        return SourceWriter(self)
 
 
+class FFMpegRunner(object):
+    @classmethod
+    def new_for_audio(cls, audio_port):
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.mkv') as of:
+            output_path = of.name
+            
+        return FFMpegRunner([FFMPEG, '-y',
+                             '-f', 's16le', '-ar', '48000', '-ac', '2', '-i', 'tcp://127.0.0.1:{}'.format(audio_port),
+                             '-c:v', 'none',
+                             '-c:a', 'libvo_aacenc', '-b:a', '256k', output_path], [output_path])
+    
+
+    @classmethod
+    def new_for_video(cls, video_port):
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.mkv') as of:
+            output_path = of.name
+
+        return FFMpegRunner([FFMPEG, '-y',
+                             '-f', 'rawvideo',
+                             '-pixel_format', 'bgra',
+                             '-video_size', '1920x1080',
+                             '-framerate', '60',
+                             '-i', 'tcp://127.0.0.1:{}'.format(video_port),
+
+                             '-vsync', '2',
+                             '-crf', '15',
+                             '-vcodec', 'libx264',
+                             '-pix_fmt', 'yuv420p',
+                             '-preset', 'ultrafast',
+                             '-threads', '3',
+                             '-c:a', 'none',
+                             '-movflags', 'faststart',
+                             output_path],
+                            [output_path])
+    
+                            
+    def __init__(self, ffmpeg_command, output_paths=[]):
+        self.ffmpeg_command = ffmpeg_command
+        self.output_paths = output_paths
+
+    def start(self, ffmpeg_exit_callback):
+        def ffmpeg_thread():
+            error_exit = False
+            try:
+                process = subprocess.Popen(self.ffmpeg_command)
+
+                process.wait()
+                if process.returncode != 0:
+                    logger.warning("ffmpeg exited with non-zero return code {}".format(process.returncode))
+                    error_exit = True
+            except:
+                logger.exception("Exception running ffmpeg subprocess")
+                error_exit = True
+
+                
+            ffmpeg_exit_callback(error_exit)
+
+
+
+        ffmpeg_thread = threading.Thread(target=ffmpeg_thread, name="ffmpeg thread")
+        ffmpeg_thread.daemon = True
+        ffmpeg_thread.start()
+        
+
+    
+
+    
 ### Main ###
 
 class Encoder(object):
@@ -151,17 +218,51 @@ class Encoder(object):
         """
         self.audio_source = audio_source
         self.video_source = video_source
+        self.audio_encoded = False
+        self.video_encoded = False
+        self.reactor_running = False
+
+    def stop(self):
+        if self.reactor_running:
+            reactor.stop()
+            self.reactor_running = True
         
     def notify_done(self):
         self._producers -= 1
         if not self._producers:
-            reactor.stop()
+            pass
+            #self.stop()
 
-    def notify_ffmpeg_exit(self):
-        if self._producers:
-            logger.error("ffmpeg stopped before producers")
-            reactor.stop()
+    def try_encode_step1_done(self):
+        if self.audio_encoded and self.video_encoded:
+            logger.info("Audio and video encoding completed! hoorak")
+            self.stop()
+        
+    def encode_done(self, failed, done_fn):
+        def fn():
+            if failed:
+                logger.error("ffmpeg failed; aborting process")
+                self.stop()
+                return
+
+            done_fn()
             
+            self.try_encode_step1_done()
+            
+        
+        reactor.callFromThread(fn)
+    
+    def audio_encode_done(self, failed):
+        def done_fn():
+            self.audio_encoded = True
+        self.encode_done(failed, done_fn)
+    
+    def video_encode_done(self, failed):
+        def done_fn():
+            self.video_encoded = True
+        self.encode_done(failed, done_fn)
+        
+
     def run(self):
         self._producers = 0
         
@@ -174,29 +275,19 @@ class Encoder(object):
         audio_port = reactor.listenTCP(0, awf).getHost().port
         logger.info("Audio server listening on port {}".format(audio_port))
         self._producers += 1
+
+        audio_ffmpeg = FFMpegRunner.new_for_audio(audio_port)
+        video_ffmpeg = FFMpegRunner.new_for_video(video_port)
+
+        audio_output = audio_ffmpeg.output_paths
+        video_output = video_ffmpeg.output_paths
         
-        def start_ffmpeg():
-            def ffmpeg_thread():
-                try:
-                    process = subprocess.Popen([FFMPEG, '-y',
-                                                '-f', 'rawvideo', '-pixel_format', 'bgra', '-video_size', '1920x1080', '-framerate', '60', '-i', 'tcp://127.0.0.1:{}'.format(video_port),
-                                                '-f', 's16le', '-ar', '48000', '-ac', '2', '-i', 'tcp://127.0.0.1:{}'.format(audio_port),
-                                                '-vsync', '2', '-crf', '15', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'ultrafast', '-threads', '3', '-c:a', 'libvo_aacenc', '-b:a', '256k', '-movflags', 'faststart', 'out.mp4'])
+        reactor.callWhenRunning(lambda: audio_ffmpeg.start(self.audio_encode_done))
+        reactor.callWhenRunning(lambda: video_ffmpeg.start(self.video_encode_done))
 
-                    process.wait()
-                    if process.returncode != 0:
-                        logger.warning("ffmpeg exited with non-zero return code {}".format(process.returncode))
-                except:
-                    logger.exception("Exception running ffmpeg subprocess")
-                finally:
-                    reactor.callFromThread(lambda: self.notify_ffmpeg_exit())
-                
-                
-                
-            ffmpeg_thread = threading.Thread(target=ffmpeg_thread, name="ffmpeg thread")
-            ffmpeg_thread.daemon = True
-            ffmpeg_thread.start()
-            
-
-        reactor.callWhenRunning(start_ffmpeg)
+        self.reactor_running = True
         reactor.run()
+
+        for path in audio_output + video_output:
+            os.unlink(path)
+            
