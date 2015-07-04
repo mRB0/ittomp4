@@ -117,8 +117,12 @@ class ModDecoder(object):
     def get_pattern_state(self):
         pass
 
+class SynchronizerDone(object): pass
+class SynchronizerAbort(object): pass
+
 class Synchronizer(object):
-    DONE = object()
+    DONE = SynchronizerDone()
+    ABORT = SynchronizerAbort()
     
     def __init__(self, audio_decoder, video_layout):
         self._audio_decoder = audio_decoder
@@ -131,43 +135,33 @@ class Synchronizer(object):
         self._video_frames_produced = 0
         self._audio_frames_produced = 0
 
-        self._video_queue = Queue(1)
+        self._video_queue = Queue()
         self._audio_queue = Queue()
+
+        self._abortLock = threading.Condition()
+        self._abort = False
+        self._running = False
         
-        self._request_condition = threading.Condition()
+    def frames_from_queue(self, q):
+        exit_reason = Synchronizer.ABORT
 
-    def _request_next_frame(self):
-        with self._request_condition:
-            self._request_condition.notify()
-            
-    def video_frames(self):
-        while True:
-            logging.debug("Fetch a video frame")
-            try:
-                frame_data = self._video_queue.get(False)
-            except Empty:
-                logging.debug("Request next video frame and wait")
-                self._request_next_frame()
-                frame_data = self._video_queue.get()
-            
-            if frame_data is Synchronizer.DONE:
-                break
-            yield frame_data
+        try:
+            while True:
+                logging.debug("Fetch a frame")
+                frame_data = q.get()
+                with self._abortLock:
+                    self._abortLock.notify()
 
-    def audio_frames(self):
-        while True:
-            logging.debug("Fetch audio frames")
-            try:
-                frame_data = self._audio_queue.get(False)
-            except Empty:
-                logging.debug("Request next audio frame and wait")
-                self._request_next_frame()
-                frame_data = self._audio_queue.get()
-
-            if frame_data is Synchronizer.DONE:
-                break
-            yield frame_data
-
+                if frame_data is Synchronizer.DONE:
+                    exit_reason = Synchronizer.DONE
+                    break
+                elif frame_data is Synchronizer.ABORT:
+                    logging.warning("Frame delivery aborted")
+                    break
+                yield frame_data
+        finally:
+            yield exit_reason
+        
 
     def _audio_frames_to_next_video_frame(self):
         overshoot = self._audio_frames_produced % self._audio_frames_per_video_frame
@@ -175,17 +169,28 @@ class Synchronizer(object):
         
     
     def _run(self):
+        exit_reason = None
         try:
             while True:
-                with self._request_condition:
-                    self._request_condition.wait()
-                    logging.debug("Produce frame: audio queue size = {}, video queue size = {}".format(self._audio_queue.qsize(), self._video_queue.qsize()))
+                with self._abortLock:
+                    while self._video_queue.qsize() > 0 and not self._abort:
+                        self._abortLock.wait()
+                        
+                    if self._abort:
+                        logging.warning("Received abort request")
+                        exit_reason = Synchronizer.ABORT
+                        self._running = False
+                        break
                     
+                    logging.debug("Produce frame: audio queue size = {}, video queue size = {}".format(self._audio_queue.qsize(), self._video_queue.qsize()))
+
                     audio_frame_count = self._audio_frames_to_next_video_frame()
                     logging.debug("Produce {} audio frames".format(audio_frame_count))
 
                     audio_frames = self._audio_decoder.get_frames(audio_frame_count)
                     if audio_frames is None:
+                        exit_reason = Synchronizer.DONE
+                        self._running = False
                         break
 
                     # TODO: do this only if supported by audio decoder
@@ -194,25 +199,48 @@ class Synchronizer(object):
                     video_frame = self._video_layout.build_frame() # TODO: pass pattern state, vu state, etc.
                     self._audio_queue.put(audio_frames)
                     self._video_queue.put(video_frame)
-                
+            
         finally:
-            self._video_queue.put(Synchronizer.DONE)
-            self._audio_queue.put(Synchronizer.DONE)
+            self._video_queue.put(exit_reason)
+            self._audio_queue.put(exit_reason)
 
     def start(self):
+        self._running = True
+        self._abort = False
+        
         self._thread = threading.Thread(target=self._run, name="synchronizer")
         self._thread.daemon = True
         self._thread.start()
-        
 
+    def abort(self):
+        logging.debug("Request abort")
+        with self._abortLock:
+            if self._running:
+                logging.debug("Drain frame queues")
+                try:
+                    while True:
+                        self._audio_queue.get(False)
+                except Empty:
+                    pass
+                try:
+                    while True:
+                        self._video_queue.get(False)
+                except Empty:
+                    pass
+
+                self._abort = True
+                self._abortLock.notify()
 
 class VideoSource(object):
     def __init__(self, synchronizer):
         self._synchronizer = synchronizer
 
     def frames(self):
-        for f in self._synchronizer.video_frames():
+        for f in self._synchronizer.frames_from_queue(self._synchronizer._video_queue):
             yield f
+
+    def abort(self):
+        self._synchronizer.abort()
 
     
 class AudioSource(object):
@@ -220,13 +248,16 @@ class AudioSource(object):
         self._synchronizer = synchronizer
 
     def frames(self):
-        for f in self._synchronizer.audio_frames():
+        for f in self._synchronizer.frames_from_queue(self._synchronizer._audio_queue):
             yield f
+
+    def abort(self):
+        self._synchronizer.abort()
 
             
 if __name__ == '__main__':
     import logging
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(threadName)s %(levelname)-7s %(message)s")
+    logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(threadName)s %(levelname)-7s %(message)s")
 
     import videofeeder
 
