@@ -156,6 +156,8 @@ class FFMpegRunner(object):
                                                                0, # byClrUsed (ignored by ffmpeg)
                                                                0)) # byClrImportant (ignored by ffmpeg)
 
+                    audio_fps = 48000
+                    
                     strh_audio = RIFFChunk('strh', struct.pack('<4s4sIHHIIIIIIIIHHHH',
                                                                'auds',
                                                                '\0\0\0\0',
@@ -164,7 +166,7 @@ class FFMpegRunner(object):
                                                                0,
                                                                0,
                                                                1, # scale (seconds)
-                                                               48000, # rate (frames per scale)
+                                                               audio_fps, # rate (frames per scale)
                                                                0,
                                                                0, # size of stream (hack)
                                                                0,
@@ -174,10 +176,10 @@ class FFMpegRunner(object):
                     strf_audio = RIFFChunk('strf', struct.pack('<HHIIHHH', # WAVEFORMATEX
                                                                0x0001, # wFormatTag (1 = WAVE_FORMAT_PCM)
                                                                2, # nChannels
-                                                               48000, # nSamplesPerSec
-                                                               192000, # nAvgBytesPerSec
-                                                               4, # nBlockAlign
-                                                               16, # wBitsPerSample
+                                                               audio_fps, # nSamplesPerSec
+                                                               audio_fps * 2 * 2, # nAvgBytesPerSec (sample rates * 16-bit * 2 channels)
+                                                               2 * 2, # nBlockAlign (16-bit * 2 channels)
+                                                               16, # wBitsPerSample (16 bits <2> * 8)
                                                                0)) # cbSize
 
 
@@ -298,7 +300,7 @@ class Main(object):
 
         for i in range(600):
             frame = video_producer.build_frame()
-            audio = audio_producer.get_frames(800)
+            audio = audio_producer.get_frames(int(round(48000 / 60)))
             
             q = ffmpegger.queue
             if q is None:
