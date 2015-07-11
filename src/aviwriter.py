@@ -11,7 +11,7 @@ import struct
 
 from Queue import Queue, Empty
 
-from ittomp4 import VideoLayout
+from ittomp4 import VideoLayout, ModDecoder
 
 FFMPEG = 'ffmpeg'
 
@@ -74,8 +74,8 @@ class FFMpegRunner(object):
                              '-preset', 'ultrafast',
                              '-threads', '3',
 
-                             '-an',
-                             #'-c:a', 'libvo_aacenc', '-b:a', '256k',
+                             #'-an',
+                             '-c:a', 'libvo_aacenc', '-b:a', '256k',
 
                              'out.mp4'])
     
@@ -110,9 +110,9 @@ class FFMpegRunner(object):
             try:
                 logger = module_logger.getChild('videoshuttle')
 
-                writefile = open('debug.avi', 'wb')
+                #writefile = open('debug.avi', 'wb')
                 
-                def write_avi_header():
+                def write_avi_header(frame, audio):
                     logger.debug("Write avi header")
 
                     avih = RIFFChunk('avih', struct.pack('<IIIIIIIIIIIIII',
@@ -122,7 +122,7 @@ class FFMpegRunner(object):
                                                          0x00000100, # flags: 0x100 = AVIF_ISINTERLEAVED
                                                          0,
                                                          0,
-                                                         1, # num streams
+                                                         2, # num streams
                                                          8294400, # 1920x1080x4
                                                          1920,
                                                          1080,
@@ -156,39 +156,72 @@ class FFMpegRunner(object):
                                                                0, # byClrUsed (ignored by ffmpeg)
                                                                0)) # byClrImportant (ignored by ffmpeg)
 
+                    strh_audio = RIFFChunk('strh', struct.pack('<4s4sIHHIIIIIIIIHHHH',
+                                                               'auds',
+                                                               '\0\0\0\0',
+                                                               0,
+                                                               0,
+                                                               0,
+                                                               0,
+                                                               1, # scale (seconds)
+                                                               48000, # rate (frames per scale)
+                                                               0,
+                                                               0, # size of stream (hack)
+                                                               0,
+                                                               0,
+                                                               0x0, # dwSampleSize, "number of bytes of one stream atom"
+                                                               0, 0, 0, 0))
+                    strf_audio = RIFFChunk('strf', struct.pack('<HHIIHHH', # WAVEFORMATEX
+                                                               0x0001, # wFormatTag (1 = WAVE_FORMAT_PCM)
+                                                               2, # nChannels
+                                                               48000, # nSamplesPerSec
+                                                               192000, # nAvgBytesPerSec
+                                                               4, # nBlockAlign
+                                                               16, # wBitsPerSample
+                                                               0)) # cbSize
+
 
                     strl_video = RIFFList('strl', [strh_video, strf_video])
+                    strl_audio = RIFFList('strl', [strh_audio, strf_audio])
 
                     dmlh = RIFFChunk('dmlh', struct.pack('<I', 0xffffffff))
                     odml = RIFFList('odml', [dmlh])
 
-                    hdrl = RIFFList('hdrl', [avih, strl_video, odml])
+                    hdrl = RIFFList('hdrl', [avih, strl_video, strl_audio, odml])
 
                     # normally we should have movi lists in the 'AVI ' part of the file, but
                     # for simpler code we're putting them all into the 'AVIX' part.
                     # ffmpeg don't care about that.
 
-                    videochunk = RIFFChunk('{:02x}db'.format(0), self.queue.get())
-                    movi = RIFFList('movi', [videochunk])
+                    videochunk = RIFFChunk('{:02x}db'.format(0), frame)
+                    audiochunk = RIFFChunk('{:02x}wb'.format(1), audio)
+                    
+                    movi = RIFFList('movi', [videochunk, audiochunk])
 
                     root = RIFFList('AVI ', [hdrl, movi], 'RIFF')
 
                     root.dump(writefile)
 
-                def write_frame(frame):
-                    videochunk = RIFFChunk('{:02x}db'.format(0), frame)
-                    movi = RIFFList('movi', [videochunk])
-                    avix = RIFFList('AVIX', [movi], 'RIFF')
+                first_frame = [True]
+                
+                def write_frame(frame, audio):
+                    if first_frame[0]:
+                        write_avi_header(frame, audio)
+                        first_frame[0] = False
+                    else:
+                        videochunk = RIFFChunk('{:02x}db'.format(0), frame)
+                        audiochunk = RIFFChunk('{:02x}wb'.format(1), audio)
+                        movi = RIFFList('movi', [videochunk, audiochunk])
+                        avix = RIFFList('AVIX', [movi], 'RIFF')
 
-                    avix.dump(writefile)
+                        avix.dump(writefile)
 
-                write_avi_header()
                 
                 while True:
                     logger.debug('get a frame')
-                    frame = self.queue.get()
+                    frame, audio = self.queue.get()
                     logger.debug("write a frame")
-                    written = write_frame(frame)
+                    written = write_frame(frame, audio)
 
                     #if written <= 0:
                     #    logger.debug("couldn't write! stop stop stop")
@@ -251,24 +284,29 @@ class FFMpegRunner(object):
         with self.abortLock:
             self.aborted = True
             if self.process is not None:
+                pass
+                logger.debug("FORCE KILLING ffmpeg")
                 self.process.terminate()
 
 class Main(object):
     def main(self):
         video_producer = VideoLayout(60)
+        audio_producer = ModDecoder('desertrocks.it')
 
         ffmpegger = FFMpegRunner.new()
         ffmpegger.start()
 
-        for i in range(120):
+        for i in range(600):
             frame = video_producer.build_frame()
-
+            audio = audio_producer.get_frames(800)
+            
             q = ffmpegger.queue
             if q is None:
                 break
-            q.put(frame)
+            q.put((frame, audio))
 
-        ffmpegger.abort()
+        # TODO: wait for ffmpeg to complete
+        #ffmpegger.abort()
         
 
 if __name__ == '__main__':
