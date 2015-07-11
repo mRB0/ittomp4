@@ -28,6 +28,11 @@ class RIFFChunk(object):
     def __len__(self):
         return len(self.data) + 8 # 8 = 32-bit fourcc + 32-bit data length
 
+    def __str__(self):
+        sio = StringIO()
+        self.dump(sio)
+        return sio.getvalue()
+
     def dump(self, fobj):
         fobj.write(struct.pack('<4s', self.fourcc))
         fobj.write(struct.pack('<I', len(self.data)))
@@ -45,6 +50,11 @@ class RIFFList(object):
 
     def __len__(self):
         return sum(len(c) for c in self.contents) + 12 # 12 = 32-bit fourcc + 32-bit data+4cc length + list tag
+
+    def __str__(self):
+        sio = StringIO()
+        self.dump(sio)
+        return sio.getvalue()
         
     def dump(self, fobj):
         contents_length = sum(len(c) for c in self.contents)
@@ -56,7 +66,7 @@ class RIFFList(object):
             c.dump(fobj)
         
 
-    
+        
 # - 
 
 class VideoRunner(object):
@@ -66,7 +76,7 @@ class VideoRunner(object):
                       '-i', '-',
                       
                       '-vsync', '2',
-                      '-crf', '15',
+                      '-crf', '33',
                       '-vcodec', 'libx264',
                       '-pix_fmt', 'yuv420p',
                       '-preset', 'ultrafast',
@@ -187,7 +197,7 @@ class VideoRunner(object):
 
         root = RIFFList('AVI ', [hdrl, movi], 'RIFF')
 
-        root.dump(fobj)
+        fobj.write(str(root))
 
     def _write_avix_chunk(self, fobj, video_frame, audio_frames):
         videochunk = RIFFChunk('{:02x}db'.format(0), video_frame)
@@ -195,7 +205,7 @@ class VideoRunner(object):
         movi = RIFFList('movi', [videochunk, audiochunk])
         avix = RIFFList('AVIX', [movi], 'RIFF')
         
-        avix.dump(fobj)
+        fobj.write(str(avix))
         
         
     def _write_frame(self, fobj, video_frame, audio_frames):
@@ -206,21 +216,17 @@ class VideoRunner(object):
             self.first_frame_written = True
         
     def start(self, get_frames_fn):
-        self.process = subprocess.Popen(VideoRunner.FFMPEG_COMMAND, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        si = self.process.stdin
-        
-        self._start_pipe_logger('stdout', self.process.stdout)
-        self._start_pipe_logger('stderr', self.process.stderr)
+        error_exit = False
 
-        import time
-        time.sleep(0.25)
-        
         try:
-            while True:
-                #import random
-                #if random.randint(0, 100) == 1:
-                #    pass#self.process.terminate()
-                
+            self.process = subprocess.Popen(VideoRunner.FFMPEG_COMMAND, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            si = self.process.stdin
+        
+            self._start_pipe_logger('stdout', self.process.stdout)
+            self._start_pipe_logger('stderr', self.process.stderr)
+
+            #while True:
+            for n in xrange(120):
                 frames = get_frames_fn()
                 if frames is None:
                     break
@@ -231,10 +237,24 @@ class VideoRunner(object):
             logger.debug("Done writing frames!")
         except:
             logger.exception("ERROR writing frames!")
+            error_exit = True
         finally:
             logger.debug("Wait for ffmpeg process to stop")
             self.process.stdin.close()
             self.process.wait()
+
+            if self.process.returncode != 0:
+                logger.warning("ffmpeg exited with non-zero status {}".format(self.process.returncode))
+                error_exit = True
+
+            self.process = None
+            
+            # todo: check return code
+
+    def abort(self):
+        pcs = self.process
+        if pcs is not None:
+            pcs.terminate()
                 
 class Main(object):
     def main(self):
