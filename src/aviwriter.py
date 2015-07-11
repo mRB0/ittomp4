@@ -17,6 +17,8 @@ FFMPEG = 'ffmpeg'
 
 logger = module_logger = logging.getLogger(__name__)
 
+from cStringIO import StringIO
+
 class RIFFChunk(object):
     def __init__(self, fourcc, data):
         assert(isinstance(fourcc, str) and len(fourcc) == 4)
@@ -26,10 +28,10 @@ class RIFFChunk(object):
     def __len__(self):
         return len(self.data) + 8 # 8 = 32-bit fourcc + 32-bit data length
 
-    def __str__(self):
-        return '{}{}{}'.format(self.fourcc,
-                               struct.pack('<I', len(self.data)),
-                               self.data)
+    def dump(self, fobj):
+        fobj.write(struct.pack('<4s', self.fourcc))
+        fobj.write(struct.pack('<I', len(self.data)))
+        fobj.write(self.data)
         
 
 class RIFFList(object):
@@ -43,23 +45,25 @@ class RIFFList(object):
 
     def __len__(self):
         return sum(len(c) for c in self.contents) + 12 # 12 = 32-bit fourcc + 32-bit data+4cc length + list tag
-
-    def __str__(self):
+        
+    def dump(self, fobj):
         contents_length = sum(len(c) for c in self.contents)
+        
+        fobj.write(struct.pack('<4s', self.list_tag))
+        fobj.write(struct.pack('<I', contents_length + 4)) # add 4 for 32-bit fourcc
+        fobj.write(struct.pack('<4s', self.list_fourcc))
+        for c in self.contents:
+            c.dump(fobj)
+        
 
-        return '{}{}{}{}'.format(self.list_tag,
-                                 struct.pack('<I', contents_length + 4), # add 4 for 32-bit fourcc
-                                 self.list_fourcc,
-                                 ''.join(str(c) for c in self.contents))
-
-
+    
 # - 
 
 class FFMpegRunner(object):
     @classmethod
     def new(cls):
         return FFMpegRunner([FFMPEG, '-y',
-
+                             
                              '-f', 'avi',
                              '-i', '-',
 
@@ -106,71 +110,89 @@ class FFMpegRunner(object):
             try:
                 logger = module_logger.getChild('videoshuttle')
 
-                logger.debug("Write avi header")
-
-
-                avih = RIFFChunk('avih', struct.pack('<IIIIIIIIIIIIII',
-                                                     16666,
-                                                     0,
-                                                     1,
-                                                     0x00000100, # flags: 0x100 = AVIF_ISINTERLEAVED
-                                                     0,
-                                                     0,
-                                                     1, # num streams
-                                                     8294400, # 1920x1080x4
-                                                     1920,
-                                                     1080,
-                                                     0, 0, 0, 0))
-
-                strh_video = RIFFChunk('strh', struct.pack('<4s4sIHHIIIIIIIIHHHH',
-                                                           'vids',
-                                                           'DIB ',
-                                                           0,
-                                                           0,
-                                                           0,
-                                                           0,
-                                                           60, # frames
-                                                           1, # per second
-                                                           0,
-                                                           0, # size of stream (hack)
-                                                           0,
-                                                           0,
-                                                           0x0, # dwSampleSize, "number of bytes of one stream atom"
-                                                           0, 0, 0, 0))
-                strf_video = RIFFChunk('strf', struct.pack('<IiiHH4sIiiII',
-                                                           40, # size of this structure
-                                                           1920,
-                                                           1080,
-                                                           1, # planes (ignored)
-                                                           32, # bits per pixel
-                                                           'RGBA', # format tag
-                                                           0,
-                                                           0,
-                                                           0,
-                                                           0,
-                                                           0)) # last 5 ignored by ffmpeg
-                                                           
+                writefile = open('debug.avi', 'wb')
                 
-                strl_video = RIFFList('strl', [strh_video, strf_video])
-                
-                hdrl = RIFFList('hdrl', [avih, strl_video])
-                
-                root = RIFFList('AVI ', [hdrl], 'RIFF')
+                def write_avi_header():
+                    logger.debug("Write avi header")
 
-                with open('debug.avi', 'wb') as avif:
-                    avif.write(str(root))
-                    
-                writefile.write(str(root))
+                    avih = RIFFChunk('avih', struct.pack('<IIIIIIIIIIIIII',
+                                                         16666,
+                                                         0,
+                                                         1,
+                                                         0x00000100, # flags: 0x100 = AVIF_ISINTERLEAVED
+                                                         0,
+                                                         0,
+                                                         1, # num streams
+                                                         8294400, # 1920x1080x4
+                                                         1920,
+                                                         1080,
+                                                         0, 0, 0, 0))
+
+                    strh_video = RIFFChunk('strh', struct.pack('<4s4sIHHIIIIIIIIHHHH',
+                                                               'vids',
+                                                               'DIB ',
+                                                               0,
+                                                               0,
+                                                               0,
+                                                               0,
+                                                               1, # scale (seconds)
+                                                               60, # rate (frames per scale)
+                                                               0,
+                                                               0, # size of stream (hack)
+                                                               0,
+                                                               0,
+                                                               0x0, # dwSampleSize, "number of bytes of one stream atom"
+                                                               0, 0, 0, 0))
+                    strf_video = RIFFChunk('strf', struct.pack('<IiiHH4sIiiII', # BITMAPINFOHEADER
+                                                               40, # biSize - size of this structure
+                                                               1920, # biWidth
+                                                               -1080, # biHeight (negative for top-down pixel rows)
+                                                               1, # biPlanes (ignored by ffmpeg)
+                                                               32, # biBitCount - bits per pixel
+                                                               '', # biCompression - format tag ('\0\0\0\0' = bgra)
+                                                               0, # biSizeImage (ignored by ffmpeg)
+                                                               0, # biXPelsPerMeter (ignored by ffmpeg)
+                                                               0, # biYPelsPerMeter (ignored by ffmpeg)
+                                                               0, # byClrUsed (ignored by ffmpeg)
+                                                               0)) # byClrImportant (ignored by ffmpeg)
+
+
+                    strl_video = RIFFList('strl', [strh_video, strf_video])
+
+                    dmlh = RIFFChunk('dmlh', struct.pack('<I', 0xffffffff))
+                    odml = RIFFList('odml', [dmlh])
+
+                    hdrl = RIFFList('hdrl', [avih, strl_video, odml])
+
+                    # normally we should have movi lists in the 'AVI ' part of the file, but
+                    # for simpler code we're putting them all into the 'AVIX' part.
+                    # ffmpeg don't care about that.
+
+                    videochunk = RIFFChunk('{:02x}db'.format(0), self.queue.get())
+                    movi = RIFFList('movi', [videochunk])
+
+                    root = RIFFList('AVI ', [hdrl, movi], 'RIFF')
+
+                    root.dump(writefile)
+
+                def write_frame(frame):
+                    videochunk = RIFFChunk('{:02x}db'.format(0), frame)
+                    movi = RIFFList('movi', [videochunk])
+                    avix = RIFFList('AVIX', [movi], 'RIFF')
+
+                    avix.dump(writefile)
+
+                write_avi_header()
                 
                 while True:
                     logger.debug('get a frame')
                     frame = self.queue.get()
                     logger.debug("write a frame")
-                    written = writefile.write(frame)
+                    written = write_frame(frame)
 
-                    if written <= 0:
-                        logger.debug("couldn't write! stop stop stop")
-                        return
+                    #if written <= 0:
+                    #    logger.debug("couldn't write! stop stop stop")
+                    #    return
             finally:
                 dq = self.queue
                 self.queue = None
