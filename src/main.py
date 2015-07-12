@@ -1,3 +1,5 @@
+# -*- coding: utf-8-unix -*-
+
 from ittomp4.ittomp4 import ModDecoder, VideoLayout
 from ittomp4.ffmpegwriter import VideoRunner
 
