@@ -1,12 +1,10 @@
 # -*- coding: utf-8-unix -*-
 
-from collections import namedtuple
+from __future__ import division, absolute_import
 
 import cairo
 
 from .views._cairohelpers import cairo_surface
-
-VideoConfig = namedtuple('VideoConfig', ('width', 'height', 'fps'))
 
 class SurfaceHandler(object):
     def __init__(self, video_config, root_view):
@@ -14,6 +12,6 @@ class SurfaceHandler(object):
         self.root_view = root_view
 
     def render(self, decode_state):
-        with cairo_surface(cairo.FORMAT_ARGB32, 1920, 1080) as surface:
+        with cairo_surface(cairo.FORMAT_ARGB32, self.video_config.width, self.video_config.height) as surface:
             return self.root_view.render(surface, self.video_config, decode_state)
             

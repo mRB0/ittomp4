@@ -5,27 +5,31 @@ from __future__ import division
 import math
 
 from ittomp4.views.mod_pattern_view import ModPatternView
-from ittomp4.surface_handler import SurfaceHandler, VideoConfig
+from ittomp4.surface_handler import SurfaceHandler
+from ittomp4.config import Config, VideoConfig, AudioConfig
 from ittomp4.ffmpegwriter import VideoRunner
 from ittomp4.decoder import mod
 
-VIDEO_FPS = 60
-AUDIO_FPS = 48000
+_config = Config(VideoConfig(1920, 1080, 60),
+                 AudioConfig(48000))
 
 class Main(object):
     def _audio_frames_to_next_video_frame(self, state):
-        audio_frames_per_video_frame = AUDIO_FPS / self.video_config.fps
+        audio_frames_per_video_frame = self.config.audio.fps / self.config.video.fps
         
         overshoot = state['audio']['frames_produced'] % audio_frames_per_video_frame
         return int(math.ceil(audio_frames_per_video_frame - overshoot))
 
     def main(self):
-        self.video_config = VideoConfig(1920, 1080, VIDEO_FPS)
-        audio_producer = mod.Decoder('desertrocks.it')
-        video_producer = SurfaceHandler(self.video_config, ModPatternView())
+        self.config = _config
+        
+        audio_producer = mod.Decoder(self.config.audio, 'desertrocks.it')
+        video_producer = SurfaceHandler(self.config.video, ModPatternView())
 
         state = {'video': {'frames_produced': 0},
-                 'audio': {'frames_produced': 0}}
+                 'audio': {'frames_produced': 0},
+                 'frame': 0,
+                 'elapsed_sec': 0.0}
         
         def get_frames():
             # TODO: Move this function into a sequencer
@@ -38,13 +42,15 @@ class Main(object):
 
             state['video']['frames_produced'] += 1
             state['audio']['frames_produced'] += audio_frames_required
+            state['frame'] += 1
+            state['elapsed_sec'] = state['frame'] / self.config.video.fps
             
             if video is None or audio is None:
                 return None
             else:
                 return video, audio
             
-        ffmpegger = VideoRunner()
+        ffmpegger = VideoRunner(self.config)
         ffmpegger.start(get_frames)
 
 if __name__ == '__main__':
