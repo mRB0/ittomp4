@@ -3,11 +3,14 @@
 from __future__ import division, absolute_import
 
 import logging as _logging
-logger = _logging.getLogger(__name__)
-
+import struct
 import ctypes
 
 from . import libopenmpt
+
+
+logger = _logging.getLogger(__name__)
+
 
 def _openmpt_log(message, user):
     logger.info("(openmpt) {}".format(message.decode('utf-8')))
@@ -43,3 +46,25 @@ class Module(object):
             self.mod_p = None
         
         
+class Decoder(object):
+    def __init__(self, mod_filename):
+        self.fps = 48000
+        self._filename = mod_filename
+        self.module = Module(self._filename)
+
+    def close(self):
+        if self.module is not None:
+            self.module.close()
+            self.module = None
+        
+    def render(self, count):
+        samples_buffer_raw = self.module.decode(count)
+        if samples_buffer_raw is None:
+            return None
+        samples_buffer = ''.join([struct.pack('<h', samp) for samp in samples_buffer_raw])
+
+        return samples_buffer
+        
+    def update_state(self, state):
+        pass
+    
