@@ -84,7 +84,8 @@ class VideoRunner(object):
                       'out.mp4']
     
 
-    def __init__(self):
+    def __init__(self, config):
+        self.config = config
         self.process = None
         self.first_frame_written = False
 
@@ -108,17 +109,17 @@ class VideoRunner(object):
         logger.debug("Write avi header")
 
         avih = RIFFChunk('avih', struct.pack('<IIIIIIIIIIIIII',
-                                             16666,
-                                             0,
-                                             1,
-                                             0x00000100, # flags: 0x100 = AVIF_ISINTERLEAVED
-                                             0,
-                                             0,
-                                             2, # num streams
-                                             8294400, # 1920x1080x4
-                                             1920,
-                                             1080,
-                                             0, 0, 0, 0))
+                                             int(round(1 / self.config.video.fps * 1000000)), # dwMicroSecPerFrame - frame display rate in microseconds (unreliable)
+                                             0, # dwMaxBytesPerSec (unreliable)
+                                             1, # dwPaddingGranularity
+                                             0x00000100, # dwFlags: 0x100 = AVIF_ISINTERLEAVED
+                                             0, # dwTotalFrames (unreliable)
+                                             0, # dwInitialFrames (ignored)
+                                             2, # dwStreams - number of streams
+                                             self.config.video.width * self.config.video.height * 4, # bytes per video frame
+                                             self.config.video.width,
+                                             self.config.video.height,
+                                             0, 0, 0, 0)) # (reserved)
 
         strh_video = RIFFChunk('strh', struct.pack('<4s4sIHHIIIIIIIIHHHH',
                                                    'vids',
@@ -128,7 +129,7 @@ class VideoRunner(object):
                                                    0,
                                                    0,
                                                    1, # scale (seconds)
-                                                   60, # rate (frames per scale)
+                                                   self.config.video.fps, # rate (frames per scale)
                                                    0,
                                                    0, # size of stream (hack)
                                                    0,
@@ -137,8 +138,8 @@ class VideoRunner(object):
                                                    0, 0, 0, 0))
         strf_video = RIFFChunk('strf', struct.pack('<IiiHH4sIiiII', # BITMAPINFOHEADER
                                                    40, # biSize - size of this structure
-                                                   1920, # biWidth
-                                                   -1080, # biHeight (negative for top-down pixel rows)
+                                                   self.config.video.width, # biWidth
+                                                   -self.config.video.height, # biHeight (negative for top-down pixel rows)
                                                    1, # biPlanes (ignored by ffmpeg)
                                                    32, # biBitCount - bits per pixel
                                                    '', # biCompression - format tag ('\0\0\0\0' = bgra)
@@ -148,8 +149,6 @@ class VideoRunner(object):
                                                    0, # byClrUsed (ignored by ffmpeg)
                                                    0)) # byClrImportant (ignored by ffmpeg)
 
-        audio_fps = 48000
-
         strh_audio = RIFFChunk('strh', struct.pack('<4s4sIHHIIIIIIIIHHHH',
                                                    'auds',
                                                    '\0\0\0\0',
@@ -158,7 +157,7 @@ class VideoRunner(object):
                                                    0,
                                                    0,
                                                    1, # scale (seconds)
-                                                   audio_fps, # rate (frames per scale)
+                                                   self.config.audio.fps, # rate (frames per scale)
                                                    0,
                                                    0, # size of stream (hack)
                                                    0,
@@ -168,8 +167,8 @@ class VideoRunner(object):
         strf_audio = RIFFChunk('strf', struct.pack('<HHIIHHH', # WAVEFORMATEX
                                                    0x0001, # wFormatTag (1 = WAVE_FORMAT_PCM)
                                                    2, # nChannels
-                                                   audio_fps, # nSamplesPerSec
-                                                   audio_fps * 2 * 2, # nAvgBytesPerSec (sample rates * 16-bit * 2 channels)
+                                                   self.config.audio.fps, # nSamplesPerSec
+                                                   self.config.audio.fps * 2 * 2, # nAvgBytesPerSec (sample rates * 16-bit * 2 channels)
                                                    2 * 2, # nBlockAlign (16-bit * 2 channels)
                                                    16, # wBitsPerSample (16 bits <2> * 8)
                                                    0)) # cbSize
@@ -222,8 +221,7 @@ class VideoRunner(object):
             self._start_pipe_logger('stdout', self.process.stdout)
             self._start_pipe_logger('stderr', self.process.stderr)
 
-            #while True:
-            for n in xrange(120):
+            while True:
                 frames = get_frames_fn()
                 if frames is None:
                     break

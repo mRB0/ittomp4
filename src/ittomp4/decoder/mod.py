@@ -18,7 +18,8 @@ def _openmpt_log(message, user):
 _openmpt_log_func = libopenmpt.openmpt_log_func(_openmpt_log)
 
 class Module(object):
-    def __init__(self, module_filename):
+    def __init__(self, module_filename, fps):
+        self.fps = fps
         with open(module_filename, 'rb') as mod_file:
             mod_data = mod_file.read()
 
@@ -29,7 +30,7 @@ class Module(object):
     def decode(self, num_frames):
         buf = (ctypes.c_int16 * (num_frames * 2))() # * 2 => stereo
         
-        returned = libopenmpt.openmpt_module_read_interleaved_stereo(self.mod_p, 48000, num_frames, buf)
+        returned = libopenmpt.openmpt_module_read_interleaved_stereo(self.mod_p, self.fps, num_frames, buf)
         if returned == 0:
             logger.debug("End of mod")
             return None
@@ -47,10 +48,10 @@ class Module(object):
         
         
 class Decoder(object):
-    def __init__(self, mod_filename):
-        self.fps = 48000
+    def __init__(self, audio_config, mod_filename):
+        self.audio_config = audio_config
         self._filename = mod_filename
-        self.module = Module(self._filename)
+        self.module = Module(self._filename, self.audio_config.fps)
 
     def close(self):
         if self.module is not None:
