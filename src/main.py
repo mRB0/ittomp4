@@ -1,18 +1,44 @@
 # -*- coding: utf-8-unix -*-
 
-from ittomp4.ittomp4 import ModDecoder, VideoLayout
-from ittomp4.ffmpegwriter import VideoRunner
+from __future__ import division
 
+import math
+
+from ittomp4.views.mod_pattern_view import ModPatternView
+from ittomp4.surface_handler import SurfaceHandler, VideoConfig
+from ittomp4.ffmpegwriter import VideoRunner
+from ittomp4.decoder import mod
+
+VIDEO_FPS = 60
+AUDIO_FPS = 48000
 
 class Main(object):
+    def _audio_frames_to_next_video_frame(self, state):
+        audio_frames_per_video_frame = AUDIO_FPS / self.video_config.fps
+        
+        overshoot = state['audio']['frames_produced'] % audio_frames_per_video_frame
+        return int(math.ceil(audio_frames_per_video_frame - overshoot))
+
     def main(self):
-        video_producer = VideoLayout(60)
-        audio_producer = ModDecoder('desertrocks.it')
+        self.video_config = VideoConfig(1920, 1080, VIDEO_FPS)
+        audio_producer = mod.Decoder('desertrocks.it')
+        video_producer = SurfaceHandler(self.video_config, ModPatternView())
 
-        def get_frames():            
-            video = video_producer.build_frame()
-            audio = audio_producer.get_frames(800)
+        state = {'video': {'frames_produced': 0},
+                 'audio': {'frames_produced': 0}}
+        
+        def get_frames():
+            # TODO: Move this function into a sequencer
+            audio_producer.update_state(state)
 
+            video = video_producer.render(state)
+            
+            audio_frames_required = self._audio_frames_to_next_video_frame(state)
+            audio = audio_producer.render(audio_frames_required)
+
+            state['video']['frames_produced'] += 1
+            state['audio']['frames_produced'] += audio_frames_required
+            
             if video is None or audio is None:
                 return None
             else:
