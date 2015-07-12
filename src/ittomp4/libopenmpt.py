@@ -436,6 +436,7 @@ class DarwinLibraryLoader(LibraryLoader):
 
         dirs.extend(self.other_dirs)
         dirs.append(".")
+        dirs.append('ittomp4/osx')
 
         if hasattr(sys, 'frozen') and sys.frozen == 'macosx_app':
             dirs.append(os.path.join(
@@ -500,6 +501,8 @@ class PosixLibraryLoader(LibraryLoader):
         self._ld_so_cache = cache
 
     def getplatformpaths(self, libname):
+        yield 'ittomp4/posix'
+        
         if self._ld_so_cache is None:
             self._create_ld_so_cache()
 
@@ -554,6 +557,10 @@ class WindowsLibraryLoader(LibraryLoader):
     def getplatformpaths(self, libname):
         if os.path.sep not in libname:
             for name in self.name_formats:
+                dll_in_subdir = os.path.abspath(os.path.join('ittomp4', 'windows', name % libname))
+                if os.path.exists(dll_in_subdir):
+                    yield dll_in_subdir
+                    
                 dll_in_current_dir = os.path.abspath(name % libname)
                 if os.path.exists(dll_in_current_dir):
                     yield dll_in_current_dir

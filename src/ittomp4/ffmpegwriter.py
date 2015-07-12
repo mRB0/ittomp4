@@ -1,7 +1,6 @@
-#!/usr/bin/env python
 # -*- coding: utf-8-unix -*-
 
-from __future__ import division
+from __future__ import division, absolute_import
 
 import sys
 import logging
@@ -10,8 +9,6 @@ import threading
 import struct
 
 from Queue import Queue, Empty
-
-from ittomp4 import VideoLayout, ModDecoder
 
 FFMPEG = 'ffmpeg'
 
@@ -256,26 +253,4 @@ class VideoRunner(object):
         if pcs is not None:
             pcs.terminate()
                 
-class Main(object):
-    def main(self):
-        video_producer = VideoLayout(60)
-        audio_producer = ModDecoder('desertrocks.it')
-
-        def get_frames():            
-            video = video_producer.build_frame()
-            audio = audio_producer.get_frames(800)
-
-            if video is None or audio is None:
-                return None
-            else:
-                return video, audio
-            
-        ffmpegger = VideoRunner()
-        ffmpegger.start(get_frames)
-
-if __name__ == '__main__':
-    import logging
-    logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(threadName)s %(levelname)-7s %(message)s")
-    
-    Main().main()
     
