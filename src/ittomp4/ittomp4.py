@@ -1,7 +1,6 @@
-#!/usr/bin/env python
 # -*- coding: utf-8-unix -*-
 
-from __future__ import division
+from __future__ import division, absolute_import
 
 import sys
 import logging
@@ -12,16 +11,17 @@ import threading
 from Queue import Queue, Empty, Full
 
 import cairo
-import decode_mod
+
+from . import decode_mod
 
 
 from sys import platform as _platform
 if _platform == 'linux' or _platform == 'linux2':
-    import cairofont_freetype as cairofont
+    from .posix import cairofont
 elif _platform == 'win32':
-    import cairofont_windows as cairofont
+    from .windows import cairofont
 elif _platform == 'darwin':
-    import cairofont_osx as cairofont
+    from .osx import cairofont
 
 FONT_FACE = cairofont.load_font('Comic Sans MS')
 

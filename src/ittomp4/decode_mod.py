@@ -1,10 +1,13 @@
 # -*- coding: utf-8-unix -*-
 
+from __future__ import division, absolute_import
+
 import logging as _logging
 logger = _logging.getLogger(__name__)
 
 import ctypes
-import libopenmpt
+
+from . import libopenmpt
 
 def _openmpt_log(message, user):
     logger.info("(openmpt) {}".format(message.decode('utf-8')))
