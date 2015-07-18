@@ -6,10 +6,11 @@ import math
 from ._cairohelpers import cairo_context, cairo_font
 
 class ModPatternView(object):
-    def __init__(self):
+    def __init__(self, mod_decoder):
         self.step = 0
+        self.mod_decoder = mod_decoder
 
-    def render(self, surface, video_config, decode_state):
+    def render(self, surface, video_config, state, rect):
         barwidth = 100
         step = 10
 
@@ -17,7 +18,6 @@ class ModPatternView(object):
         self.step += 1
 
         with cairo_context(surface) as ctx:
-
             ctx.new_path()
             ctx.rectangle(0, 0, video_config.width, video_config.height)
             ctx.set_source_rgb(math.cos(i / 240 * (math.pi * 2)) / 2 + 0.5, 0, math.sin(i / 180 * (math.pi * 2)) / 2 + 0.5)
