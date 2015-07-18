@@ -15,6 +15,9 @@ logger = _logging.getLogger(__name__)
 
 _STOP = "stop"
 
+MAX_WIDTH = 400
+MAX_HEIGHT = 400
+
 class Image(object):
     def __init__(self, data):
         self.data = data
@@ -22,6 +25,7 @@ class Image(object):
 class Preview(object):
     
     def _ui_thread(self):
+        import math
         _logging.basicConfig(level=_logging.DEBUG, format="%(asctime)s %(threadName)s %(levelname)-7s %(message)s")
         
         self.root = Tkinter.Tk()
@@ -32,25 +36,44 @@ class Preview(object):
 
         self.root.title("Preview")
 
-        cv = Tkinter.Canvas(width=self.video_config.width, height=self.video_config.height)
+        scale_x = min(MAX_WIDTH / self.video_config.width, 1)
+        scale_y = min(MAX_HEIGHT / self.video_config.height, 1)
+        scale = min(scale_x, scale_y)
+        scale_recip = 1 / scale
+        stride = int(math.ceil(scale_recip))
+
+        cv = Tkinter.Canvas(width=self.video_config.width // stride, height=self.video_config.height // stride)
         cv.pack(side='top', fill='both')
 
         self.root.protocol("WM_DELETE_WINDOW", on_closing)
 
         def update_image(data):
             try:
+                output_w = self.video_config.width // stride
+                output_h = self.video_config.height // stride
+                
                 photo_f = StringIO()
                 photo_f.write('P6\n')
-                photo_f.write('{}\n'.format(self.video_config.width))
-                photo_f.write('{}\n'.format(self.video_config.height))
+                photo_f.write('{}\n'.format(output_w))
+                photo_f.write('{}\n'.format(output_h))
                 photo_f.write('255\n')
 
-                ppm_data = bytearray(len(data) // 4 * 3)
+                ppm_data = bytearray(output_w * output_h * 3) # 3 bytes per pixel
+
+                in_bytes_per_row = self.video_config.width * 4
+                out_bytes_per_row = output_w * 3
                 
-                for i in xrange(len(data) // 4):
-                    ppm_data[i * 3 + 0] = data[i * 4 + 2]
-                    ppm_data[i * 3 + 1] = data[i * 4 + 1]
-                    ppm_data[i * 3 + 2] = data[i * 4 + 0]
+                for row in xrange(output_h):
+                    out_row_offs = row * out_bytes_per_row
+                    in_row_offs = row * stride * in_bytes_per_row
+
+                    for col in xrange(output_w):
+                        out_offs = out_row_offs + (col * 3)
+                        in_offs = in_row_offs + (col * 4 * stride)
+
+                        ppm_data[out_offs + 0] = data[in_offs + 2]
+                        ppm_data[out_offs + 1] = data[in_offs + 1]
+                        ppm_data[out_offs + 2] = data[in_offs + 0]
                     
                 photo_f.write(ppm_data)
                 
