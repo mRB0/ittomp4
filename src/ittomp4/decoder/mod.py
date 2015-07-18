@@ -37,7 +37,6 @@ class Module(object):
 
         buf = buf[:returned * 2]
 
-        logger.debug("Decoded {} frames".format(returned))
         return buf
     
     def close(self):
