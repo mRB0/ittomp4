@@ -22,10 +22,10 @@ class Main(object):
         overshoot = state['audio']['frames_produced'] % audio_frames_per_video_frame
         return int(math.ceil(audio_frames_per_video_frame - overshoot))
 
-    def main(self):
+    def main(self, filename):
         self.config = _config
         
-        audio_producer = mod.Decoder(self.config.audio, 'desertrocks.it')
+        audio_producer = mod.Decoder(self.config.audio, filename)
         video_producer = SurfaceHandler(self.config.video, ModPatternView(audio_producer))
 
         state = {'video': {'frames_produced': 0},
@@ -33,7 +33,6 @@ class Main(object):
                  'frame': 0,
                  'elapsed_sec': 0.0}
         
-        audio_producer.update_state(state)
         preview = Preview(self.config.video)
         
         def get_frames():
@@ -50,7 +49,6 @@ class Main(object):
             state['audio']['frames_produced'] += audio_frames_required
             state['frame'] += 1
             state['elapsed_sec'] = state['frame'] / self.config.video.fps
-            audio_producer.update_state(state)
             
             if video is None or audio is None:
                 return None
@@ -67,6 +65,12 @@ class Main(object):
 
 if __name__ == '__main__':
     import logging
+    import argparse
     logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(threadName)s %(levelname)-7s %(message)s")
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('filename')
+
+    args = parser.parse_args()
     
-    Main().main()
+    Main().main(args.filename)
