@@ -1,60 +1,126 @@
 # -*- coding: utf-8-unix -*-
 
+from __future__ import division
+
 import math
 
+import logging as _logging
+logger = _logging.getLogger(__name__)
+
+# - Module context -
+
+class ModContext(object):
+    def __init__(self):
+        pass
+
+# - The actual view -
 
 from ._cairohelpers import cairo_context, cairo_font
 
+COLUMN_COLORS = {'.': (0.4, 0.4, 0.4),
+                 'n': (1.0, 1.0, 1.0),
+                 'i': (0.0, 0.8, 1.0),
+                 'v': (0.4, 1.0, 0.2),
+                 'u': (0.2, 0.5, 0.1),
+                 'f': (1.0, 0.1, 0.2),
+                 'e': (0.7, 0.0, 0.1)}
+
 class ModPatternView(object):
-    def __init__(self, mod_decoder):
+    def __init__(self, decoder):
         self.step = 0
-        self.mod_decoder = mod_decoder
+        self.decoder = decoder
 
     def render(self, surface, video_config, state, rect):
-        barwidth = 100
-        step = 10
-
-        i = self.step
-        self.step += 1
-
         with cairo_context(surface) as ctx:
+            ctx.save()
+            
             ctx.new_path()
-            ctx.rectangle(0, 0, video_config.width, video_config.height)
-            ctx.set_source_rgb(math.cos(i / 240 * (math.pi * 2)) / 2 + 0.5, 0, math.sin(i / 180 * (math.pi * 2)) / 2 + 0.5)
+            ctx.rectangle(rect.origin.x, rect.origin.y, rect.size.w, rect.size.h)
+            ctx.clip()
+
+            # originate our drawing at 0, 0
+            ctx.translate(rect.origin.x, rect.origin.y)
+
+            w, h = rect.size.w, rect.size.h
+
+            ctx.new_path()
+            ctx.rectangle(0, 0, rect.size.w, rect.size.h)
+            ctx.set_source_rgb(0.06, 0.06, 0.06)
+            ctx.fill()
+            
+            ctx.set_font_face(cairo_font('Consolas'))
+            ctx.set_font_size(18)
+
+            font_ascent, font_descent, font_height, font_max_x_advance, font_max_y_advance = ctx.font_extents()
+
+            text_x_bearing, text_y_bearing, text_width, text_height, text_x_advance, text_y_advance = ctx.text_extents('m')
+
+            # highlight the current cow (center)
+            y_ctr = h / 2
+            ctx.new_path()
+            ctx.rectangle(0, y_ctr - font_height / 2, w, font_height)
+            ctx.set_source_rgb(0, 0.16, 0.24)
             ctx.fill()
 
-            horizbar_y_ctr = (video_config.height / 2) + (int(math.cos(i / 240 * (math.pi * 2)) * (video_config.height / 2 * .8)))
-            max_extent = int(video_config.height * .08 / 2)
+            # figure out how much space to leave for things
+            pattern_index = self.decoder.get_current_pattern()
+            row_index = self.decoder.get_current_row()
+            formatted_rows = self.decoder.get_formatted_pattern_data(pattern_index)
 
-            for h in xrange(max_extent, 0, -1):
+            y_ctr_baseline = y_ctr + font_height / 2 - font_descent
+            y_top_row = y_ctr_baseline - (row_index * font_height)
+
+            # every channel really should be the same width, but we do this anyway for safety
+            # (although we should be able to support a different width per-channel, and can calculate a max width unique to each channel)
+            # (this won't happen for mods or ITs or anything though)
+            channel_max_width = max(max(len(chan[0]) for chan in formatted_chans) for formatted_chans in formatted_rows) * text_width
+            channel_count = max(len(formatted_chans) for formatted_chans in formatted_rows)
+
+            # draw vertical spacers between channels
+            ctx.set_source_rgb(0, 0.24, 0.36)
+            spacer_width = text_width / 2
+            ptn_top = y_ctr - (font_height / 2) - (row_index * font_height)
+            ptn_bottom = ptn_top + (len(formatted_rows) * font_height)
+
+            row_display_width = text_width * 3
+            channels_left = row_display_width + spacer_width
+            
+            for channel_index in xrange(channel_count):
+                x_offset = channels_left - spacer_width + (channel_index * (channel_max_width + spacer_width))
                 ctx.new_path()
-                ctx.rectangle(0, horizbar_y_ctr - h, video_config.width, h * 2)
-                ctx.set_source_rgba(1, 1, 1, (max_extent - h) / pow(max_extent, 2))
+                ctx.rectangle(x_offset + (spacer_width / 2) - (spacer_width / 4),
+                              max(ptn_top, 0),
+                              spacer_width / 2,
+                              min(ptn_bottom, h))
                 ctx.fill()
 
+            
+            # draw some note data!
+            for row, formatted_channels in enumerate(formatted_rows):
+                y_row = y_top_row + (row * font_height)
 
+                ctx.set_source_rgb(0.6, 1.0, 0.6)
+                row_index_text = '{:03d}'.format(row)[-3:]
+                for i, letter in enumerate(row_index_text):
+                    ctx.move_to(i * text_width, y_row)
+                    ctx.show_text(letter)
+                    
+                
+                for chan, formatted_channel in enumerate(formatted_channels):
+                    x_channel = channels_left + chan * (channel_max_width + spacer_width)
+                    
+                    for i, (letter, highlight) in enumerate(zip(*formatted_channel)):
+                        ctx.set_source_rgb(*COLUMN_COLORS.get(highlight, (1, 1, 1)))
+                        
+                        x_letter = x_channel + (i * text_width)
+                        ctx.move_to(x_letter, y_row)
+                        ctx.show_text(letter)
+            
+            #ctx.move_to(0, y_ctr_baseline)
+            #ctx.show_text("some text in the top-left")
 
-            ctx.new_path()
-
-            if video_config.width - ((i * step) % video_config.width) < barwidth:
-                ctx.rectangle((i * step) % video_config.width - video_config.width, 0, barwidth, video_config.height)
-            ctx.rectangle((i * step) % video_config.width, 0, barwidth, video_config.height)
-
-            ctx.set_source_rgb(0.25, 1, 0.25)
-            ctx.fill()
-
-
-            ctx.set_font_face(cairo_font('Comic Sans MS'))
-            ctx.set_font_size(128)
-            ctx.set_source_rgb(1, 1, 1)
-
-            for pos, ltr in enumerate('  YOU ARE FULL OF BOMBS AND/OR KEYS'):
-                x = video_config.width - i * step + (128 * pos)
-                y = (video_config.height / 2) - (video_config.height * 0.2 * math.sin((x + (i * step/4)) * math.pi / 1020))
-
-                ctx.move_to(x, y)
-                ctx.show_text(ltr)
-
+            ctx.restore()
+            
         surface_data = str(surface.get_data())
 
         return surface_data

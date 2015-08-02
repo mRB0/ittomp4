@@ -15,8 +15,8 @@ logger = _logging.getLogger(__name__)
 
 _STOP = "stop"
 
-MAX_WIDTH = 400
-MAX_HEIGHT = 400
+MAX_WIDTH = 1000
+MAX_HEIGHT = 1000
 
 class Image(object):
     def __init__(self, data):
