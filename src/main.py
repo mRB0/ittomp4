@@ -83,14 +83,21 @@ class Main(object):
 if __name__ == '__main__':
     import logging
     import argparse
-    logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(threadName)s %(levelname)-7s %(message)s")
+    from datetime import datetime    
+
+    log_format = "%(asctime)s %(threadName)s %(levelname)-7s %(message)s"
+    logging.basicConfig(level=logging.DEBUG, format=log_format)
+    logfilename = 'log_{}.txt'.format(datetime.now().strftime('%Y-%m-%d_%H%M%S'))
+
+    log_file_handler = logging.FileHandler(logfilename, encoding='utf-8')
+    log_file_handler.setFormatter(logging.Formatter(log_format))
+    logging.getLogger().addHandler(log_file_handler)
 
     parser = argparse.ArgumentParser()
     parser.add_argument('filename')
 
     args = parser.parse_args()
 
-    from datetime import datetime
     dt_start = datetime.utcnow()
     Main().main(args.filename)
     dt_end = datetime.utcnow()
