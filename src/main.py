@@ -67,7 +67,7 @@ class Main(object):
             state['frame'] += 1
             state['elapsed_sec'] = state['frame'] / self.config.video.fps
             
-            if video is None or audio is None:
+            if video is None or audio is None or preview.is_stop_requested():
                 return None
             else:
                 return video, audio

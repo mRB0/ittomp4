@@ -14,6 +14,7 @@ from itertools import izip
 logger = _logging.getLogger(__name__)
 
 _STOP = "stop"
+_READY = "ready"
 
 MAX_WIDTH = 1000
 MAX_HEIGHT = 1000
@@ -31,8 +32,7 @@ class Preview(object):
         self.root = Tkinter.Tk()
 
         def on_closing():
-            # don't let it close (should cancel here)
-            pass
+            self.out_queue.put(_STOP)
 
         self.root.title("Preview")
 
@@ -80,7 +80,7 @@ class Preview(object):
                 self.photo = Tkinter.PhotoImage(data=photo_f.getvalue())
                 cv.create_image(0, 0, image=self.photo, anchor='nw')
                 cv.pack(side='top', fill='both')
-                self.out_queue.put("ready")
+                self.out_queue.put(_READY)
             except:
                 logger.exception("Exception producing image")
                 raise
@@ -108,21 +108,33 @@ class Preview(object):
         self.in_queue = Queue()
         self.out_queue = Queue()
         self.ready_for_image = True
+        self.stop_requested = False
         self.frames_since_last_render = 0
     
     def show_preview_ui(self):
         self.thread = Process(target=self._ui_thread)
         self.thread.start()
 
+
+    def process_out_queue(self):
+        try:
+            while True:
+                message = self.out_queue.get(False)
+                if message == _STOP:
+                    self.stop_requested = True
+                elif message == _READY:
+                    self.ready_for_image = True
+        except Empty:
+            pass
+        
+        
+    def is_stop_requested(self):
+        self.process_out_queue()
+        return self.stop_requested
+        
     def update_image(self, imagedata):
-        if not self.ready_for_image:
-            try:
-                self.out_queue.get(False) # if there's ANYTHING in the queue, treat it as ready
-                self.ready_for_image = True
-            except Empty:
-                # Skip frame because still rendering last frame
-                pass
-            
+        self.process_out_queue()
+        
         if self.ready_for_image:
             # after ready, wait as many frames as were produced during the preview before we render the next one, to give the rendering process some breathing room
             
