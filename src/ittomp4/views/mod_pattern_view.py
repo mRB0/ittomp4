@@ -7,14 +7,6 @@ import math
 import logging as _logging
 logger = _logging.getLogger(__name__)
 
-# - Module context -
-
-class ModContext(object):
-    def __init__(self):
-        pass
-
-# - The actual view -
-
 from ._cairohelpers import cairo_context, cairo_font
 
 COLUMN_COLORS = {'.': (0.4, 0.4, 0.4),
@@ -27,7 +19,6 @@ COLUMN_COLORS = {'.': (0.4, 0.4, 0.4),
 
 class ModPatternView(object):
     def __init__(self, decoder):
-        self.step = 0
         self.decoder = decoder
 
     def render(self, surface, video_config, state, rect):
@@ -49,7 +40,7 @@ class ModPatternView(object):
             ctx.fill()
             
             ctx.set_font_face(cairo_font('Consolas'))
-            ctx.set_font_size(18)
+            ctx.set_font_size(16)
 
             font_ascent, font_descent, font_height, font_max_x_advance, font_max_y_advance = ctx.font_extents()
 
@@ -121,6 +112,3 @@ class ModPatternView(object):
 
             ctx.restore()
             
-        surface_data = str(surface.get_data())
-
-        return surface_data

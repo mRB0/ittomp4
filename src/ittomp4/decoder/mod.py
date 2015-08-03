@@ -29,6 +29,8 @@ class Decoder(object):
         mod_data_buf = ctypes.create_string_buffer(mod_data, len(mod_data))
         
         self.mod_p = libopenmpt.openmpt_module_create_from_memory(mod_data_buf, len(mod_data_buf), _openmpt_log_func, None, None)
+        self.state = None
+        
 
     def get_current_pattern(self):
         return libopenmpt.openmpt_module_get_current_pattern(self.mod_p)
@@ -72,7 +74,15 @@ class Decoder(object):
         return rows
                 
                     
+    def get_title(self):
+        title_openmptstr = libopenmpt.openmpt_module_get_metadata(self.mod_p, "title")
+        try:
+            title = str(title_openmptstr)
+        finally:
+            libopenmpt.openmpt_free_string(title_openmptstr)
 
+        return title
+            
         
     def close(self):
         if self.mod_p is not None:
@@ -92,7 +102,12 @@ class Decoder(object):
         buf = buf[:returned * 2]
         
         samples_buffer = ''.join([struct.pack('<h', samp) for samp in buf])
-
+        
+        logger.debug("Order {}/{}; row {}/{}".format(self.get_current_order(),
+                                                     self.get_order_count(),
+                                                     self.get_current_row(),
+                                                     libopenmpt.openmpt_module_get_pattern_num_rows(self.mod_p, libopenmpt.openmpt_module_get_current_pattern(self.mod_p))))
+        
         return samples_buffer
 
     
