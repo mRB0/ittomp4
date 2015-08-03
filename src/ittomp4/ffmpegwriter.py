@@ -73,10 +73,10 @@ class VideoRunner(object):
                       '-i', '-',
                       
                       '-vsync', '2',
-                      '-crf', '17',
+                      '-crf', '13',
                       '-vcodec', 'libx264',
                       '-pix_fmt', 'yuv420p',
-                      #'-preset', 'normal',
+                      '-preset', 'veryslow',
                       '-threads', '3',
                       
                       '-c:a', 'libvo_aacenc', '-b:a', '320k',
