@@ -5,10 +5,13 @@ from __future__ import division
 import math
 
 from ittomp4.views.mod_pattern_view import ModPatternView
+from ittomp4.views.mod_header_view import ModHeaderView
+from ittomp4.views.framer import Framer
 from ittomp4.surface_handler import SurfaceHandler
 from ittomp4.types import Config, VideoConfig, AudioConfig
 from ittomp4.ffmpegwriter import VideoRunner
 from ittomp4.decoder import mod
+from ittomp4.types import makerect
 
 from preview import Preview
 
@@ -24,9 +27,23 @@ class Main(object):
 
     def main(self, filename):
         self.config = _config
-        
+
         audio_producer = mod.Decoder(self.config.audio, filename)
-        video_producer = SurfaceHandler(self.config.video, ModPatternView(audio_producer))
+
+        header_view = ModHeaderView(audio_producer)
+        pattern_view = ModPatternView(audio_producer)
+        root_view = Framer()
+        root_view.add(header_view, makerect(0,
+                                            0,
+                                            self.config.video.width,
+                                            self.config.video.height / 30))
+        
+        root_view.add(pattern_view, makerect(0,
+                                             self.config.video.height / 30,
+                                             self.config.video.width,
+                                             self.config.video.height - (self.config.video.height / 30)))
+        
+        video_producer = SurfaceHandler(self.config.video, root_view)
 
         state = {'video': {'frames_produced': 0},
                  'audio': {'frames_produced': 0},
@@ -72,5 +89,16 @@ if __name__ == '__main__':
     parser.add_argument('filename')
 
     args = parser.parse_args()
-    
+
+    from datetime import datetime
+    dt_start = datetime.utcnow()
     Main().main(args.filename)
+    dt_end = datetime.utcnow()
+
+    from dateutil.relativedelta import relativedelta
+    attrs = ['years', 'months', 'days', 'hours', 'minutes', 'seconds']
+    human_readable = lambda delta: ' '.join(['%d %s' % (getattr(delta, attr), getattr(delta, attr) > 1 and attr or attr[:-1]) 
+                                             for attr in attrs if getattr(delta, attr)])
+
+    logging.debug("Finished in {}".format(human_readable(relativedelta(dt_end, dt_start))))
+    

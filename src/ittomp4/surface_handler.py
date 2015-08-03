@@ -14,11 +14,13 @@ class SurfaceHandler(object):
 
     def render(self, state):
         with cairo_surface(cairo.FORMAT_ARGB32, self.video_config.width, self.video_config.height) as surface:
-            frame = self.root_view.render(surface,
-                                         self.video_config,
-                                         state,
-                                         makerect(0, 0, self.video_config.width, self.video_config.height))
+            self.root_view.render(surface,
+                                  self.video_config,
+                                  state,
+                                  makerect(0, 0, self.video_config.width, self.video_config.height))
 
-            return frame
+            surface_data = str(surface.get_data())
+
+            return surface_data
         
             
